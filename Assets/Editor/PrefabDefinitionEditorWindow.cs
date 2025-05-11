@@ -11,8 +11,10 @@ namespace TowerDefense.Editor
     {
         private const int TilePreviewSize = 256;
         private const int DefaultSpacing = 10;
+        private const int CameraFieldOfView = 13;
         
         private readonly Rect _thumbnailSize = new(0, 0, 64, 64);
+        private readonly Rect _iconSize = new(0, 0, 512, 512);
         
         private List<string> _prefabPaths = new();
         private int _selectedIndex = -1;
@@ -23,11 +25,14 @@ namespace TowerDefense.Editor
         private GameObject _newModelPrefab;
 
         private readonly Dictionary<string, Texture2D> _thumbnails = new();
+        
+        private Vector2 _leftScroll;
 
         [MenuItem("Tools/Tile Prefab Editor")]
         public static void ShowWindow()
         {
-            GetWindow<PrefabDefinitionEditorWindow>("Tile Prefab Editor");
+            PrefabDefinitionEditorWindow window = GetWindow<PrefabDefinitionEditorWindow>("Tile Prefab Editor");
+            window.minSize = new Vector2(600, 600);
         }
 
         private void OnEnable()
@@ -92,38 +97,48 @@ namespace TowerDefense.Editor
         {
             EditorGUILayout.BeginHorizontal();
             {
-                DrawLeftPanel();
+                _leftScroll = EditorGUILayout.BeginScrollView(_leftScroll, GUILayout.Width(250));
+                {
+                    DrawLeftPanel();
+                }
+                EditorGUILayout.EndScrollView();
+
                 EditorGUILayout.BeginVertical();
                 {
-                    if (_selectedIndex >= 0)
-                    {
-                        GUILayout.Label("Editing: " + _prefabPaths[_selectedIndex], EditorStyles.boldLabel);
-                        LoadForEdit(_prefabPaths[_selectedIndex]);
-
-                        EditorGUILayout.PropertyField(_selectedSerializedObject.FindProperty("_definitionId"));
-                        GUILayout.Space(DefaultSpacing);
-                        GUILayout.Label("Connections:", EditorStyles.boldLabel);
-
-                        Rect previewRect = GUILayoutUtility.GetRect(TilePreviewSize, TilePreviewSize, GUILayout.ExpandWidth(false));
-                        DrawHandlesAroundPreview();
-                        DrawPreview(previewRect);
-
-                        _selectedSerializedObject.ApplyModifiedProperties();
-
-                        GUILayout.Space(DefaultSpacing);
-                        
-                        if (GUILayout.Button("Save Changes"))
-                        {
-                            SaveEditedPrefab();
-                            RefreshPrefabList();
-                        }
-                    }
+                    DrawRightPanel();
                 }
                 EditorGUILayout.EndVertical();
             }
             EditorGUILayout.EndHorizontal();
         }
-        
+
+        private void DrawRightPanel()
+        {
+            if (_selectedIndex >= 0)
+            {
+                GUILayout.Label("Editing: " + _prefabPaths[_selectedIndex], EditorStyles.boldLabel);
+                LoadForEdit(_prefabPaths[_selectedIndex]);
+
+                EditorGUILayout.PropertyField(_selectedSerializedObject.FindProperty("_definitionId"));
+                GUILayout.Space(DefaultSpacing);
+                GUILayout.Label("Connections:", EditorStyles.boldLabel);
+
+                Rect previewRect = GUILayoutUtility.GetRect(TilePreviewSize, TilePreviewSize, GUILayout.ExpandWidth(false));
+                DrawDirections();
+                DrawPreview(previewRect);
+
+                _selectedSerializedObject.ApplyModifiedProperties();
+
+                GUILayout.Space(DefaultSpacing);
+                        
+                if (GUILayout.Button("Save Changes"))
+                {
+                    SaveEditedPrefab();
+                    RefreshPrefabList();
+                }
+            }
+        }
+
         private void DrawPreview(Rect previewRect)
         {
             if (_previewContents == null)
@@ -133,7 +148,7 @@ namespace TowerDefense.Editor
 
             PreviewRenderUtility previewUtility = new PreviewRenderUtility
             {
-                cameraFieldOfView = 15f
+                cameraFieldOfView = CameraFieldOfView
             };
             
             GameObject instance = null;
@@ -168,7 +183,10 @@ namespace TowerDefense.Editor
         
         private Texture2D GenerateThumbnails(Rect rect)
         {
-            PreviewRenderUtility previewUtility = new PreviewRenderUtility {cameraFieldOfView = 30f};
+            PreviewRenderUtility previewUtility = new PreviewRenderUtility
+            {
+                cameraFieldOfView = CameraFieldOfView
+            };
             RenderTexture prev = RenderTexture.active;
             GameObject instance = null;
             Texture2D previewTexture;
@@ -250,59 +268,59 @@ namespace TowerDefense.Editor
 
         private void DrawLeftPanel()
         {
-            EditorGUILayout.BeginVertical(GUILayout.Width(200));
+            GUILayout.Label("Create New Prefab", EditorStyles.boldLabel);
+            _newModelPrefab =
+                (GameObject) EditorGUILayout.ObjectField("Model Prefab:", _newModelPrefab, typeof(GameObject), false);
+
+            if (GUILayout.Button("Create New") && _newModelPrefab != null)
             {
-                GUILayout.Label("Create New Prefab", EditorStyles.boldLabel);
-                _newModelPrefab =
-                    (GameObject) EditorGUILayout.ObjectField("Model Prefab:", _newModelPrefab, typeof(GameObject), false);
+                CreateNew(_newModelPrefab);
+                RefreshPrefabList();
+            }
 
-                if (GUILayout.Button("Create New") && _newModelPrefab != null)
-                {
-                    CreateNew(_newModelPrefab);
-                    RefreshPrefabList();
-                }
-
-                GUILayout.Space(DefaultSpacing);
-
-                if (GUILayout.Button("Refresh List"))
-                {
-                    RefreshPrefabList();
-                }
-
-                GUILayout.Label("Existing Prefabs:", EditorStyles.boldLabel);
+            if (GUILayout.Button("Refresh List"))
+            {
+                RefreshPrefabList();
+            }
             
-                foreach ((string path, int i) in _prefabPaths.Select((p, i) => (p, i)))
-                {
-                    EditorGUILayout.BeginHorizontal();
-                    {
-                        if (_thumbnails.TryGetValue(path, out Texture2D thumbnail) && thumbnail != null)
-                        {
-                            GUILayout.Label(thumbnail, GUILayout.Width(_thumbnailSize.width), GUILayout.Height(_thumbnailSize.height));
-                        }
-                        else
-                        {
-                            GUILayout.Space(_thumbnailSize.height);
-                        }
+            if (GUILayout.Button("Create icons"))
+            {
+                GenerateAndSaveIcons();
+            }
 
-                        bool selected = i == _selectedIndex;
-                        
-                        if (GUILayout.Toggle(selected, System.IO.Path.GetFileNameWithoutExtension(path), "Button"))
+            GUILayout.Space(DefaultSpacing);
+            GUILayout.Label("Existing Prefabs:", EditorStyles.boldLabel);
+        
+            foreach ((string path, int i) in _prefabPaths.Select((p, i) => (p, i)))
+            {
+                EditorGUILayout.BeginHorizontal();
+                {
+                    if (_thumbnails.TryGetValue(path, out Texture2D thumbnail) && thumbnail != null)
+                    {
+                        GUILayout.Label(thumbnail, GUILayout.Width(_thumbnailSize.width), GUILayout.Height(_thumbnailSize.height));
+                    }
+                    else
+                    {
+                        GUILayout.Space(_thumbnailSize.height);
+                    }
+
+                    bool selected = i == _selectedIndex;
+                    
+                    if (GUILayout.Toggle(selected, System.IO.Path.GetFileNameWithoutExtension(path), "Button"))
+                    {
+                        if (_selectedIndex != i)
                         {
-                            if (_selectedIndex != i)
-                            {
-                                UnloadPreview();
-                                _selectedIndex = i;
-                                _selectedSerializedObject = null;
-                            }
+                            UnloadPreview();
+                            _selectedIndex = i;
+                            _selectedSerializedObject = null;
                         }
                     }
-                    EditorGUILayout.EndHorizontal();
                 }
+                EditorGUILayout.EndHorizontal();
             }
-            EditorGUILayout.EndVertical();
         }
 
-        private void DrawHandlesAroundPreview()
+        private void DrawDirections()
         {
             EditorGUILayout.PropertyField(_selectedSerializedObject.FindProperty("_north"), new GUIContent("↑"));
             EditorGUILayout.PropertyField(_selectedSerializedObject.FindProperty("_south"), new GUIContent("↓"));
@@ -364,6 +382,34 @@ namespace TowerDefense.Editor
             }
 
             _selectedSerializedObject = null;
+        }
+        
+        private void GenerateAndSaveIcons()
+        {
+            const string folder = "Assets/UI/Icons/Tiles";
+
+            foreach (var path in _prefabPaths)
+            {
+                _previewContents = PrefabUtility.LoadPrefabContents(path);
+                Texture2D tex = GenerateThumbnails(_iconSize);
+                PrefabUtility.UnloadPrefabContents(_previewContents);
+                _previewContents = null;
+                
+                byte[] pngData = tex.EncodeToPNG();
+                string fileName = System.IO.Path.GetFileNameWithoutExtension(path) + ".png";
+                string assetPath = $"{folder}/{fileName}";
+                System.IO.File.WriteAllBytes(assetPath, pngData);
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+                
+                TextureImporter importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+                importer!.textureType = TextureImporterType.Sprite;
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.mipmapEnabled = false;
+                importer.filterMode = FilterMode.Bilinear; 
+                importer.SaveAndReimport();
+            }
+
+            AssetDatabase.Refresh();
         }
     }
 }

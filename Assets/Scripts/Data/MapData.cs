@@ -7,7 +7,7 @@ namespace TowerDefense.Data
     public class MapData
     {
         public int Width; 
-        public int  Height;
+        public int Height;
         public List<TileData> Tiles = new();
     }
 }

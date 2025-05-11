@@ -7,6 +7,7 @@ namespace TowerDefense.Enums
         None = 0,
         Dirt = 1,
         Road = 2,
-        River = 3
+        River = 3,
+        Nexus = 4
     }
 }
